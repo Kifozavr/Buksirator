@@ -1,0 +1,280 @@
+<title>Буксиратор</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700&family=Golos+Text:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a neutral lightbox. The 16:9 frame is the only saturated thing on screen; the tool
+   around it stays in hue-biased greys so palettes can be judged without a colour cast. */
+:root {
+  --bg: #E6E4EA;
+  --stage: #D6D3DC;
+  --panel: #F3F2F6;
+  --field: #FFFFFF;
+  --ink: #1A1820;
+  --muted: #696473;
+  --line: #CFCBD7;
+  --accent: #BE271B;
+  --accent-ink: #FFFFFF;
+  --warn: #9A4A00;
+  --ok: #1E7A55;
+  --shadow: 0 18px 50px -18px rgba(30, 20, 45, .45);
+  --f-display: "Unbounded", "Arial Black", "Segoe UI", system-ui, sans-serif;
+  --f-body: "Golos Text", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --f-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --r: 10px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #17151C; --stage: #0F0E13; --panel: #1E1C24; --field: #2A2731; --ink: #ECEAF1; --muted: #9C97A8;
+    --line: #36323E; --accent: #FF5A45; --accent-ink: #1F0C08; --warn: #F0A860; --ok: #6FD3A8;
+    --shadow: 0 18px 50px -18px rgba(0, 0, 0, .8); color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #17151C; --stage: #0F0E13; --panel: #1E1C24; --field: #2A2731; --ink: #ECEAF1; --muted: #9C97A8;
+  --line: #36323E; --accent: #FF5A45; --accent-ink: #1F0C08; --warn: #F0A860; --ok: #6FD3A8;
+  --shadow: 0 18px 50px -18px rgba(0, 0, 0, .8); color-scheme: dark;
+}
+*, *::before, *::after { box-sizing: border-box; }
+html, body { height: 100%; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 var(--f-body); -webkit-font-smoothing: antialiased; }
+button, input { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.app { display: grid; grid-template-columns: minmax(0, 1fr) 372px; height: 100%; }
+.left { display: flex; flex-direction: column; gap: 14px; min-width: 0; min-height: 0; padding-block: 18px; padding-inline: 22px; }
+.top { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+.mark { margin: 0; font: 700 19px/1 var(--f-display); letter-spacing: .02em; text-transform: uppercase; }
+.sub { margin: 0; color: var(--muted); font: 400 12px/1.2 var(--f-mono); letter-spacing: .02em; }
+
+.stage { flex: 1; min-height: 0; display: grid; place-items: center; container-type: size; background: var(--stage); border-radius: var(--r); padding: 0; }
+.frame { position: relative; width: min(100cqw - 28px, (100cqh - 28px) * 16 / 9); aspect-ratio: 16 / 9; max-width: 100%;
+  box-shadow: var(--shadow); touch-action: none; cursor: crosshair; user-select: none; -webkit-user-select: none; overflow: hidden; border-radius: 3px; }
+.frame canvas { display: block; width: 100%; height: 100%; background: var(--stage); }
+.frame.drop::after { content: "Отпустите, чтобы положить картинку на макет"; position: absolute; inset: 0; display: grid; place-items: center;
+  background: color-mix(in srgb, var(--bg) 82%, transparent); font: 600 15px var(--f-body); border: 2px dashed var(--accent); }
+.pin { position: absolute; width: 26px; height: 26px; margin: -13px 0 0 -13px; border-radius: 50%; pointer-events: none;
+  border: 1.5px solid #fff; box-shadow: 0 0 0 1.5px rgba(0, 0, 0, .55), inset 0 0 0 1.5px rgba(0, 0, 0, .55); opacity: 0; transition: opacity .15s; }
+.pin::after { content: ""; position: absolute; left: 50%; top: 50%; width: 4px; height: 4px; margin: -2px; border-radius: 50%; background: #fff; box-shadow: 0 0 0 1.5px rgba(0, 0, 0, .55); }
+.frame:hover .pin, .frame.dragging .pin { opacity: 1; }
+.imgbox { position: absolute; cursor: move; outline: 1.5px dashed rgba(255, 255, 255, .9); box-shadow: 0 0 0 1.5px rgba(0, 0, 0, .45); opacity: 0; transition: opacity .15s; }
+.frame:hover .imgbox, .frame.dragging .imgbox { opacity: 1; }
+.imgbox i { position: absolute; width: 14px; height: 14px; background: #fff; border: 1.5px solid #17151C; border-radius: 3px; }
+.imgbox i[data-h="tl"] { left: -8px; top: -8px; cursor: nwse-resize; }
+.imgbox i[data-h="br"] { right: -8px; bottom: -8px; cursor: nwse-resize; }
+.imgbox i[data-h="tr"] { right: -8px; top: -8px; cursor: nesw-resize; }
+.imgbox i[data-h="bl"] { left: -8px; bottom: -8px; cursor: nesw-resize; }
+.nogl { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; text-align: center; background: var(--panel); color: var(--ink); }
+
+.bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.hint { flex: 1 1 0; min-width: 0; color: var(--muted); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.btn { display: inline-flex; align-items: center; gap: 8px; height: 38px; padding: 0 16px; border-radius: 8px; border: 1px solid var(--line);
+  background: var(--panel); font-weight: 500; white-space: nowrap; transition: background .12s, border-color .12s, transform .06s; }
+.btn:hover { border-color: var(--muted); }
+.btn:active { transform: translateY(1px); }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; padding: 0 13px; }
+.btn.primary:hover { filter: brightness(1.07); }
+.btn.on { border-color: var(--accent); color: var(--accent); }
+.btn svg { width: 12px; height: 12px; fill: currentColor; }
+.btn small { font: 400 11px var(--f-mono); opacity: .8; }
+.status { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; min-height: 34px; padding: 6px 12px; border-radius: 8px; background: var(--panel); border: 1px solid var(--line); font-size: 13px; }
+.status.warn { color: var(--warn); border-color: currentColor; }
+.status.done { color: var(--ok); }
+.status #statusText { font-variant-numeric: tabular-nums; }
+.pbar { flex: 1; min-width: 120px; height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
+.pbar > div { height: 100%; width: 0; background: var(--accent); }
+.link { background: none; border: 0; padding: 4px 2px; color: var(--accent); font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
+
+.panel { display: flex; flex-direction: column; min-height: 0; background: var(--panel); border-left: 1px solid var(--line); }
+.tabs { display: grid; grid-template-columns: repeat(4, 1fr); border-bottom: 1px solid var(--line); flex: none; }
+.tabs button { height: 46px; border: 0; background: none; color: var(--muted); font: 600 12.5px var(--f-body); border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.tabs button:hover { color: var(--ink); }
+.tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
+.panes { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.pane { display: flex; flex-direction: column; gap: 22px; padding-block: 18px 28px; padding-inline: 18px; }
+.group { display: flex; flex-direction: column; gap: 12px; }
+.group > h2 { margin: 0; font: 500 10.5px/1 var(--f-display); letter-spacing: .09em; text-transform: uppercase; color: var(--muted); }
+.group > p, .pane > p { margin: 0; color: var(--muted); font-size: 12.5px; }
+
+.pals { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.pal { display: flex; flex-direction: column; gap: 0; padding: 0; text-align: left; background: var(--field); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.pal .fan { display: block; aspect-ratio: 16 / 7; }
+.pal .pname { padding: 6px 9px 7px; font-size: 12.5px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pals .pal:last-child:nth-child(odd) { grid-column: 1 / -1; }
+.pals .pal:last-child:nth-child(odd) .fan { aspect-ratio: 32 / 7; }
+.pal:hover { border-color: var(--muted); }
+.pal[aria-pressed="true"] { border-color: var(--accent); box-shadow: 0 0 0 1.5px var(--accent); }
+
+.rows { display: flex; flex-direction: column; gap: 13px; }
+.row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; column-gap: 10px; row-gap: 5px; }
+.row label { font-size: 13px; }
+.row output { font: 400 12px var(--f-mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.row input[type="range"] { grid-column: 1 / -1; -webkit-appearance: none; appearance: none; width: 100%; height: 18px; margin: 0; background: none; --p: 50%; }
+.row input[type="range"]::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: linear-gradient(to right, var(--accent) var(--p), var(--line) var(--p)); }
+.row input[type="range"]::-moz-range-track { height: 4px; border-radius: 2px; background: linear-gradient(to right, var(--accent) var(--p), var(--line) var(--p)); }
+.row input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; margin-top: -6px; border-radius: 50%; background: var(--field); border: 2px solid var(--accent); }
+.row input[type="range"]::-moz-range-thumb { width: 12px; height: 12px; border-radius: 50%; background: var(--field); border: 2px solid var(--accent); }
+.off { opacity: .4; pointer-events: none; }
+.panel[inert] { opacity: .55; }
+
+.seg { display: flex; padding: 3px; gap: 2px; border-radius: 8px; background: var(--field); border: 1px solid var(--line); }
+.seg button { flex: 1; min-width: 0; height: 30px; padding: 0 6px; border: 0; border-radius: 6px; background: none; color: var(--muted); font-size: 12.5px; font-weight: 500; white-space: nowrap; }
+.seg button:hover { color: var(--ink); }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--panel); }
+
+.dz { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 26px 16px; text-align: center; border: 1.5px dashed var(--line); border-radius: var(--r); color: var(--muted); font-size: 12.5px; }
+.dz.drop { border-color: var(--accent); color: var(--ink); }
+.file { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; }
+.file:focus-visible + .btn { outline: 2px solid var(--accent); outline-offset: 2px; }
+.imghead { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.imghead img { width: 52px; height: 52px; object-fit: contain; border-radius: 6px; background: var(--field); border: 1px solid var(--line); flex: none; }
+.imghead span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.sw { display: flex; height: 26px; border-radius: 6px; overflow: hidden; border: 1px solid var(--line); }
+.sw i { flex: 1; }
+.cap { font-size: 12px; color: var(--muted); }
+.note { font-size: 12.5px; color: var(--muted); }
+.note.warn { color: var(--warn); }
+.mono { font: 400 12px var(--f-mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.tag { display: block; padding: 9px 11px; border-radius: 8px; background: var(--field); border: 1px solid var(--line); font: 400 11.5px/1.5 var(--f-mono); overflow-wrap: anywhere; user-select: all; -webkit-user-select: all; }
+.seg button:disabled { opacity: .35; cursor: not-allowed; }
+.narrow { display: none; }
+
+@media (max-width: 900px) {
+  html, body { height: auto; }
+  .app { display: block; height: auto; }
+  .left { padding-inline: 16px; position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--bg); gap: 10px; padding-block: 12px; }
+  .stage { flex: none; container-type: inline-size; background: none; }
+  .frame { width: 100%; }
+  .hint { display: none; }
+  .bar { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+  .btn { grid-column: span 2; justify-content: center; padding: 0 6px; height: 36px; gap: 6px; }
+  .btn.primary { grid-column: span 1; }
+  .wide { display: none; }
+  .narrow { display: inline; }
+  .btn small { display: none; }
+  .panel { border-left: 0; border-top: 1px solid var(--line); }
+  .panes { overflow: visible; }
+  .pane { padding-inline: 16px; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="app">
+  <main class="left">
+    <header class="top">
+      <h1 class="mark">Буксиратор</h1>
+      <p class="sub">лучевые фоны · 1920 × 1080 · PNG, GIF, видео, живой HTML</p>
+    </header>
+
+    <div class="stage">
+      <div class="frame" id="frame">
+        <canvas id="cv" width="1920" height="1080" role="img" aria-label="Предпросмотр фона 1920 на 1080"></canvas>
+        <div class="pin" id="pin" aria-hidden="true"></div>
+        <div class="imgbox" id="imgbox" hidden aria-hidden="true"><i data-h="tl"></i><i data-h="tr"></i><i data-h="bl"></i><i data-h="br"></i></div>
+        <div class="nogl" id="nogl" hidden>Этому браузеру не хватает WebGL 2, без него лучи не нарисовать. Откройте страницу в свежем Chrome, Safari, Firefox или Edge.</div>
+      </div>
+    </div>
+
+    <div class="bar">
+      <button type="button" class="btn" id="btnPlay" aria-pressed="false">
+        <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 1l9 5-9 5z"/></svg><span id="btnPlayLabel">Анимация</span>
+      </button>
+      <span class="hint" id="hint">Тяните центр притяжения прямо по макету</span>
+      <button type="button" class="btn" id="btnReset" title="Вернуть геометрию и движение к предустановке с самым сильным затягиванием">Сбросить</button>
+      <button type="button" class="btn primary" id="btnPng" title="Скачать картинку PNG 1920 × 1080"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M5 0h2v6h3L6 10 2 6h3zM1 11h10v1H1z"/></svg>PNG <small>1920 × 1080</small></button>
+      <button type="button" class="btn primary" id="btnGif" title="Скачать анимацию GIF, 10 секунд"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M5 0h2v6h3L6 10 2 6h3zM1 11h10v1H1z"/></svg>GIF <small>10 с</small></button>
+      <button type="button" class="btn primary" id="btnVid" title="Скачать анимацию видеофайлом, 10 секунд"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M5 0h2v6h3L6 10 2 6h3zM1 11h10v1H1z"/></svg>Видео <small id="btnVidFmt">MP4</small></button>
+      <button type="button" class="btn primary" id="btnLive" title="Скачать живой фон: HTML-файл, который рисует анимацию сам"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M5 0h2v6h3L6 10 2 6h3zM1 11h10v1H1z"/></svg><span class="wide">Живой фон</span><span class="narrow">HTML</span> <small>HTML</small></button>
+    </div>
+    <div class="status" id="status" hidden role="status" aria-live="polite">
+      <span id="statusText"></span>
+      <div class="pbar" id="statusBar" hidden><div id="statusFill"></div></div>
+      <button type="button" class="link" id="btnCancel" hidden>Остановить</button>
+      <button type="button" class="link" id="btnRetry" hidden>Сохранить ещё раз</button>
+    </div>
+  </main>
+
+  <aside class="panel">
+    <div class="tabs" role="tablist" aria-label="Разделы настроек">
+      <button type="button" role="tab" data-tab="color" aria-selected="true">Цвет</button>
+      <button type="button" role="tab" data-tab="rays" aria-selected="false">Лучи</button>
+      <button type="button" role="tab" data-tab="image" aria-selected="false">Картинка</button>
+      <button type="button" role="tab" data-tab="motion" aria-selected="false">Движение</button>
+    </div>
+    <div class="panes">
+      <section class="pane" role="tabpanel" aria-label="Цвет" data-pane="color">
+        <div class="group">
+          <h2>Чистые палитры</h2>
+          <div class="pals" id="palBasic"></div>
+        </div>
+        <div class="group">
+          <h2>Сложные: перламутр, бензин, минерал</h2>
+          <div class="pals" id="palComplex"></div>
+        </div>
+        <button type="button" class="btn" id="btnShuffle">Перемешать порядок и ширину лучей</button>
+        <div class="group">
+          <h2>Градиент внутри лучей</h2>
+          <div class="seg" id="segGrad" role="group" aria-label="Направление градиента"></div>
+          <div class="rows" id="gradOpts"><div class="rows" id="slGrad"></div></div>
+          <p>Переходы идут по цветовому кругу в OKLCH: насыщенность сохраняется, серой середины между цветами нет.</p>
+        </div>
+      </section>
+
+      <section class="pane" role="tabpanel" aria-label="Лучи" data-pane="rays" hidden>
+        <div class="group"><h2>Лучи</h2><div class="rows" id="slRays"></div></div>
+        <div class="group"><h2>Искривление</h2><div class="rows" id="slCurve"></div></div>
+        <div class="group"><h2>Центр притяжения</h2><div class="rows" id="slCenter"></div></div>
+      </section>
+
+      <section class="pane" role="tabpanel" aria-label="Картинка" data-pane="image" hidden>
+        <div class="group">
+          <h2>Картинка на переднем плане</h2>
+          <div class="dz" id="imgEmpty">
+            <input class="file" type="file" id="file" accept="image/*">
+            <label class="btn primary" for="file">Загрузить картинку</label>
+            <span>или перетащите файл сюда, на макет, либо вставьте из буфера. Лучи выйдут из-под её центра и возьмут цвета, комплементарные картинке.</span>
+          </div>
+          <div class="rows" id="imgLoaded" hidden>
+            <div class="imghead"><img id="imgThumb" alt=""><span id="imgName"></span><button type="button" class="btn" id="btnRemove">Убрать</button></div>
+            <div class="rows"><span class="cap">Основные цвета картинки</span><div class="sw" id="swImage"></div></div>
+            <div class="rows"><span class="cap">Схема лучей</span><div class="seg" id="segMode" role="group" aria-label="Схема лучей"></div><div class="sw" id="swRays"></div></div>
+            <div class="rows" id="slImage"></div>
+            <p class="note">Двигайте картинку по макету, тяните за угол, чтобы изменить размер. Центр притяжения всегда под её центром.</p>
+          </div>
+          <p class="note" id="imgNote" hidden></p>
+        </div>
+      </section>
+
+      <section class="pane" role="tabpanel" aria-label="Движение" data-pane="motion" hidden>
+        <div class="group">
+          <h2>Что движется в анимации</h2>
+          <div class="rows" id="slMotion"></div>
+          <p>Цикл длится 10 секунд и замыкается без шва. Закрутка вращается, и лучи ползут в центр: чем слабее закрутка и больше шагов, тем быстрее.</p>
+        </div>
+        <div class="group">
+          <h2>Живой фон для сайта</h2>
+          <p>HTML-файл на несколько десятков килобайт. Это не запись: страница сама рисует цикл на видеокарте зрителя, поэтому качество как у PNG при любом размере окна, а частота равна частоте экрана. Нужен WebGL 2; при настройке «меньше движения» показывается неподвижный кадр. На страницу ставится так:</p>
+          <code class="tag">&lt;iframe src="buksirator.html" style="border:0;width:100%;height:100%" aria-hidden="true"&gt;&lt;/iframe&gt;</code>
+        </div>
+        <div class="group">
+          <h2>Видео для веба</h2>
+          <div class="rows" id="vidOpts">
+            <div class="seg" id="segVfmt" role="group" aria-label="Формат видео"></div>
+            <div class="seg" id="segVsize" role="group" aria-label="Размер видео"></div>
+            <div class="seg" id="segVfps" role="group" aria-label="Кадров в секунду в видео"></div>
+            <div class="seg" id="segVq" role="group" aria-label="Качество видео"></div>
+          </div>
+          <span class="mono" id="vidInfo"></span>
+          <p>Полный цвет без палитры в 256 оттенков и в разы легче GIF. MP4 играет везде, WebM легче при том же качестве. Видеокодеки хранят цвет в половинном разрешении, поэтому границы ярких лучей чуть мягче, чем в PNG и живом фоне. На страницу ставится так:</p>
+          <code class="tag" id="vidTag"></code>
+        </div>
+        <div class="group">
+          <h2>GIF</h2>
+          <div class="seg" id="segSize" role="group" aria-label="Размер GIF"></div>
+          <div class="seg" id="segFps" role="group" aria-label="Кадров в секунду"></div>
+          <span class="mono" id="gifInfo"></span>
+        </div>
+      </section>
+    </div>
+  </aside>
+</div>
